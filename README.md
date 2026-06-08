@@ -4,7 +4,15 @@ Pull your personal [Whoop](https://www.whoop.com/) data (recovery, sleep,
 workouts, cycles, profile) via the official Whoop developer API using OAuth 2.0,
 and store it in PostgreSQL.
 
-Built with **FastAPI** + **SQLAlchemy** + **PostgreSQL**.
+Built with **FastAPI** + **SQLAlchemy** + **PostgreSQL**. Runs locally **or**
+deploys to **Vercel** with a daily **Vercel Cron** job that auto-syncs new data.
+
+There are two ways to run this — pick one:
+
+- **A. Local** (Docker Postgres, manual sync) — Steps 1–7 below.
+- **B. Vercel** (hosted Postgres, automatic daily sync) — see
+  [Deploy to Vercel](#deploy-to-vercel-daily-auto-sync). Do the local run first
+  if you want to test, but it isn't required.
 
 ```
 You ──(browser)──▶ /auth/login ──▶ Whoop authorize screen
@@ -142,17 +150,108 @@ docker exec -it whoop-postgres psql -U whoop -d whoop \
 
 ---
 
+## Deploy to Vercel (daily auto-sync)
+
+On Vercel the app runs as a **serverless function** (`api/index.py`), and a
+**Vercel Cron** job calls `GET /cron/sync` once a day to pull new data into your
+hosted database automatically. There's no always-on server and no Docker.
+
+### 1. Provision a hosted PostgreSQL
+
+Pick any managed Postgres and copy its connection string:
+
+- **Vercel Postgres** (Storage tab → Create → Postgres) — easiest, auto-adds env vars.
+- **Neon** (<https://neon.tech>) or **Supabase** (<https://supabase.com>) free tiers.
+
+Convert the connection string to a SQLAlchemy URL by prefixing the driver and
+preferring the **pooled** host for serverless:
+
+```
+postgresql+psycopg2://USER:PASSWORD@POOLED_HOST/DB?sslmode=require
+```
+
+### 2. Push this repo to GitHub and import it into Vercel
+
+In Vercel: **Add New → Project → import your GitHub repo**. Vercel auto-detects
+the Python function in `api/` and `requirements.txt`. No build command needed.
+
+### 3. Set Environment Variables (Vercel → Project → Settings → Environment Variables)
+
+| Variable | Value |
+|----------|-------|
+| `WHOOP_CLIENT_ID` / `WHOOP_CLIENT_SECRET` | from the Whoop developer portal |
+| `WHOOP_REDIRECT_URI` | `https://<your-project>.vercel.app/auth/callback` |
+| `WHOOP_SCOPES` | `offline read:recovery read:cycles read:sleep read:workout read:profile read:body_measurement` |
+| `DATABASE_URL` | the SQLAlchemy URL from step 1 |
+| `SESSION_SECRET` | `python -c "import secrets; print(secrets.token_hex(32))"` |
+| `CRON_SECRET` | another random secret — protects `/cron/sync` |
+| `SYNC_LOOKBACK_DAYS` | `7` (optional) |
+
+> **Important:** add `https://<your-project>.vercel.app/auth/callback` to your
+> app's Redirect URIs on the Whoop developer portal — it must match
+> `WHOOP_REDIRECT_URI` exactly.
+
+### 4. Deploy, then create the tables (once)
+
+After the first deploy, create the schema by calling the protected admin
+endpoint once:
+
+```bash
+curl -X POST https://<your-project>.vercel.app/admin/init-db \
+  -H "Authorization: Bearer $CRON_SECRET"
+```
+
+### 5. Connect your Whoop account (once)
+
+Open in your browser:
+
+```
+https://<your-project>.vercel.app/auth/login
+```
+
+Authorize — tokens are stored in your hosted DB. Because you granted `offline`,
+the daily cron renews the access token on its own from here on.
+
+### 6. The daily sync runs automatically
+
+`vercel.json` registers the cron:
+
+```json
+{ "crons": [ { "path": "/cron/sync", "schedule": "0 6 * * *" } ] }
+```
+
+Every day at **06:00 UTC**, Vercel calls `GET /cron/sync` (with the
+`CRON_SECRET` bearer token it injects automatically). The endpoint re-fetches
+the last `SYNC_LOOKBACK_DAYS` days and upserts them — new records are inserted,
+and scores Whoop finalized late are updated, with no duplicates.
+
+Change the cadence by editing the `schedule` (standard cron, UTC). You can also
+trigger it manually:
+
+```bash
+curl https://<your-project>.vercel.app/cron/sync -H "Authorization: Bearer $CRON_SECRET"
+```
+
+> **Plan note:** Vercel's Hobby plan allows cron jobs to run **once per day**;
+> the Pro plan allows finer schedules. Function `maxDuration` is set to 60s in
+> `vercel.json` — the incremental window keeps each run well under that.
+
+---
+
 ## Project layout
 
 ```
 app/
-├── main.py          FastAPI app: /sync + read endpoints, table creation
+├── main.py          FastAPI app: /sync, /cron/sync, read + admin endpoints
 ├── auth.py          OAuth login + callback routes
 ├── whoop_client.py  OAuth flow, token refresh, paginated API fetching
 ├── sync.py          Map Whoop records -> DB rows, idempotent upserts
 ├── models.py        SQLAlchemy tables (incl. raw JSONB of every payload)
-├── database.py      Engine / session / Base
-└── config.py        Settings loaded from .env
+├── database.py      Engine (NullPool for serverless) / session / Base
+└── config.py        Settings loaded from env / .env
+api/
+└── index.py         Vercel serverless entrypoint (exports the ASGI app)
+vercel.json          Vercel routing + daily cron schedule + maxDuration
 docker-compose.yml   Local PostgreSQL
 requirements.txt
 .env.example
@@ -175,7 +274,9 @@ requirements.txt
 |--------|------------------|------------------------------------------|
 | GET    | `/auth/login`    | Start OAuth — connect your Whoop account |
 | GET    | `/auth/callback` | OAuth redirect target (handled for you)  |
-| POST   | `/sync`          | Pull all data into Postgres              |
+| POST   | `/sync`          | Pull all data into Postgres (manual/full) |
+| GET    | `/cron/sync`     | Daily incremental sync (Vercel Cron; needs `CRON_SECRET`) |
+| POST   | `/admin/init-db` | Create tables once after deploy (needs `CRON_SECRET`) |
 | GET    | `/profile`       | Stored profile                           |
 | GET    | `/cycles`        | Stored physiological cycles              |
 | GET    | `/recovery`      | Stored recovery scores                   |

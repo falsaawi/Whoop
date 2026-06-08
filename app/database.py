@@ -3,12 +3,19 @@ from collections.abc import Iterator
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
+from sqlalchemy.pool import NullPool
 
 from app.config import get_settings
 
 settings = get_settings()
 
-engine = create_engine(settings.database_url, pool_pre_ping=True, future=True)
+# On serverless (Vercel), each invocation may run in a fresh, short-lived
+# container. NullPool opens a connection per request and closes it afterwards,
+# avoiding stale/leaked connections held across cold starts. Pair this with a
+# *pooled* connection string (e.g. Neon/Supabase PgBouncer) for best results.
+engine = create_engine(
+    settings.database_url, poolclass=NullPool, pool_pre_ping=True, future=True
+)
 SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False, future=True)
 
 

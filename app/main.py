@@ -2,7 +2,9 @@
 
 Run with:  uvicorn app.main:app --reload
 """
-from fastapi import Depends, FastAPI, HTTPException, Query
+from datetime import datetime, timedelta, timezone
+
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from starlette.middleware.sessions import SessionMiddleware
@@ -27,7 +29,8 @@ app.include_router(auth_router)
 
 @app.on_event("startup")
 def on_startup() -> None:
-    init_db()
+    if settings.auto_create_tables:
+        init_db()
 
 
 @app.get("/")
@@ -45,6 +48,15 @@ def root():
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@app.post("/admin/init-db")
+def admin_init_db(request: Request):
+    """Create database tables. Run once after deploying (serverless platforms
+    don't reliably fire startup events). Protected by CRON_SECRET."""
+    _verify_cron(request)
+    init_db()
+    return {"status": "tables created"}
 
 
 def _serialize(obj) -> dict:
@@ -73,6 +85,37 @@ def trigger_sync(
     except WhoopAuthError as exc:
         raise HTTPException(status_code=401, detail=str(exc))
     return {"synced": result}
+
+
+def _verify_cron(request: Request) -> None:
+    """Ensure the caller is Vercel Cron (or someone holding CRON_SECRET).
+
+    Vercel automatically sends ``Authorization: Bearer $CRON_SECRET`` on cron
+    invocations when the CRON_SECRET env var is set.
+    """
+    if not settings.cron_secret:
+        # No secret configured -> allow (useful for local testing only).
+        return
+    auth = request.headers.get("authorization", "")
+    if auth != f"Bearer {settings.cron_secret}":
+        raise HTTPException(status_code=401, detail="Unauthorized cron request.")
+
+
+@app.get("/cron/sync")
+def cron_sync(request: Request, db: Session = Depends(get_db)):
+    """Daily incremental sync, triggered by Vercel Cron.
+
+    Re-fetches a rolling window (``SYNC_LOOKBACK_DAYS``) and upserts it, so newly
+    finalized scores are updated without duplicating existing rows.
+    """
+    _verify_cron(request)
+    since = datetime.now(timezone.utc) - timedelta(days=settings.sync_lookback_days)
+    start = since.strftime("%Y-%m-%dT%H:%M:%SZ")
+    try:
+        result = sync.sync_all(db, {"start": start})
+    except WhoopAuthError as exc:
+        raise HTTPException(status_code=401, detail=str(exc))
+    return {"synced": result, "since": start}
 
 
 # --------------------------------------------------------------------------- #

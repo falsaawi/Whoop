@@ -25,6 +25,16 @@ class Settings(BaseSettings):
     # App
     session_secret: str = "change_me"
 
+    # Daily cron sync
+    # Secret that Vercel Cron sends as "Authorization: Bearer <secret>".
+    cron_secret: str | None = None
+    # Rolling window (days) re-fetched on each daily sync so that scores Whoop
+    # finalizes a day or two late still get updated.
+    sync_lookback_days: int = 7
+    # Run CREATE TABLE IF NOT EXISTS on startup. Set false once tables exist to
+    # avoid DDL on every serverless cold start.
+    auto_create_tables: bool = True
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     @property
