@@ -1,0 +1,37 @@
+"""Application configuration loaded from environment variables / .env file."""
+from functools import lru_cache
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    # Whoop OAuth
+    whoop_client_id: str
+    whoop_client_secret: str
+    whoop_redirect_uri: str = "http://localhost:8000/auth/callback"
+    whoop_scopes: str = (
+        "offline read:recovery read:cycles read:sleep "
+        "read:workout read:profile read:body_measurement"
+    )
+
+    # Whoop API endpoints (override-able, e.g. to switch API version)
+    whoop_auth_url: str = "https://api.prod.whoop.com/oauth/oauth2/auth"
+    whoop_token_url: str = "https://api.prod.whoop.com/oauth/oauth2/token"
+    whoop_api_base: str = "https://api.prod.whoop.com/developer/v1"
+
+    # Database
+    database_url: str = "postgresql+psycopg2://whoop:whoop@localhost:5432/whoop"
+
+    # App
+    session_secret: str = "change_me"
+
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    @property
+    def scope_list(self) -> list[str]:
+        return self.whoop_scopes.split()
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()

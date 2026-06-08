@@ -1,0 +1,23 @@
+# Spins up a local PostgreSQL instance matching the default DATABASE_URL in
+# .env.example.  Run with:  docker compose up -d
+services:
+  db:
+    image: postgres:16
+    container_name: whoop-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: whoop
+      POSTGRES_PASSWORD: whoop
+      POSTGRES_DB: whoop
+    ports:
+      - "5432:5432"
+    volumes:
+      - whoop_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U whoop"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  whoop_pgdata:
