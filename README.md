@@ -167,7 +167,7 @@ Convert the connection string to a SQLAlchemy URL by prefixing the driver and
 preferring the **pooled** host for serverless:
 
 ```
-postgresql+psycopg2://USER:PASSWORD@POOLED_HOST/DB?sslmode=require
+postgresql+psycopg://USER:PASSWORD@POOLED_HOST/DB?sslmode=require
 ```
 
 ### 2. Push this repo to GitHub and import it into Vercel
@@ -236,6 +236,19 @@ curl https://<your-project>.vercel.app/cron/sync -H "Authorization: Bearer $CRON
 > the Pro plan allows finer schedules. Function `maxDuration` is set to 60s in
 > `vercel.json` — the incremental window keeps each run well under that.
 
+### Test the serverless build locally (optional)
+
+You can run the exact Vercel serverless setup on your machine before deploying:
+
+```bash
+npm i -g vercel       # one-time
+vercel dev            # serves api/index.py + applies vercel.json routing
+```
+
+`vercel dev` reads env vars from `vercel env pull .env` (or your linked project).
+Note that `vercel dev` does **not** fire the cron on a schedule — trigger it
+manually with the `curl …/cron/sync` command above to test it.
+
 ---
 
 ## Project layout
@@ -245,8 +258,8 @@ app/
 ├── main.py          FastAPI app: /sync, /cron/sync, read + admin endpoints
 ├── auth.py          OAuth login + callback routes
 ├── whoop_client.py  OAuth flow, token refresh, paginated API fetching
-├── sync.py          Map Whoop records -> DB rows, idempotent upserts
-├── models.py        SQLAlchemy tables (incl. raw JSONB of every payload)
+├── sync.py          Map Whoop records -> DB rows, idempotent upserts + run log
+├── models.py        SQLAlchemy tables (data, oauth_tokens, sync_runs audit log)
 ├── database.py      Engine (NullPool for serverless) / session / Base
 └── config.py        Settings loaded from env / .env
 api/
@@ -277,12 +290,19 @@ requirements.txt
 | POST   | `/sync`          | Pull all data into Postgres (manual/full) |
 | GET    | `/cron/sync`     | Daily incremental sync (Vercel Cron; needs `CRON_SECRET`) |
 | POST   | `/admin/init-db` | Create tables once after deploy (needs `CRON_SECRET`) |
+| GET    | `/sync/history`  | Audit log of recent sync runs (status, counts, errors) |
 | GET    | `/profile`       | Stored profile                           |
 | GET    | `/cycles`        | Stored physiological cycles              |
 | GET    | `/recovery`      | Stored recovery scores                   |
 | GET    | `/sleep`         | Stored sleep activities                  |
 | GET    | `/workouts`      | Stored workouts                          |
 | GET    | `/health`        | Liveness check                           |
+
+Check whether the daily sync is running:
+
+```bash
+curl https://<your-project>.vercel.app/sync/history | python -m json.tool
+```
 
 ## Troubleshooting
 

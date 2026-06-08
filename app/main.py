@@ -13,7 +13,7 @@ from app import sync
 from app.auth import router as auth_router
 from app.config import get_settings
 from app.database import get_db, init_db
-from app.models import Cycle, Profile, Recovery, Sleep, Workout
+from app.models import Cycle, Profile, Recovery, Sleep, SyncRun, Workout
 from app.whoop_client import WhoopAuthError
 
 settings = get_settings()
@@ -81,10 +81,10 @@ def trigger_sync(
 ):
     """Pull every Whoop collection and upsert into the database."""
     try:
-        result = sync.sync_all(db, _date_params(start, end))
+        run = sync.run_and_log(db, "manual", _date_params(start, end))
     except WhoopAuthError as exc:
         raise HTTPException(status_code=401, detail=str(exc))
-    return {"synced": result}
+    return {"run_id": run.id, "synced": run.counts}
 
 
 def _verify_cron(request: Request) -> None:
@@ -112,10 +112,17 @@ def cron_sync(request: Request, db: Session = Depends(get_db)):
     since = datetime.now(timezone.utc) - timedelta(days=settings.sync_lookback_days)
     start = since.strftime("%Y-%m-%dT%H:%M:%SZ")
     try:
-        result = sync.sync_all(db, {"start": start})
+        run = sync.run_and_log(db, "cron", {"start": start})
     except WhoopAuthError as exc:
         raise HTTPException(status_code=401, detail=str(exc))
-    return {"synced": result, "since": start}
+    return {"run_id": run.id, "synced": run.counts, "since": start}
+
+
+@app.get("/sync/history")
+def sync_history(limit: int = 20, db: Session = Depends(get_db)):
+    """Most recent sync runs (audit log) — newest first."""
+    stmt = select(SyncRun).order_by(SyncRun.started_at.desc()).limit(limit)
+    return [_serialize(o) for o in db.scalars(stmt).all()]
 
 
 # --------------------------------------------------------------------------- #

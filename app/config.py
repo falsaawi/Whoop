@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     whoop_api_base: str = "https://api.prod.whoop.com/developer/v1"
 
     # Database
-    database_url: str = "postgresql+psycopg2://whoop:whoop@localhost:5432/whoop"
+    database_url: str = "postgresql+psycopg://whoop:whoop@localhost:5432/whoop"
 
     # App
     session_secret: str = "change_me"

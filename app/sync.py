@@ -4,14 +4,14 @@ Each ``sync_*`` function fetches a collection, maps the fields we care about,
 and performs an idempotent INSERT ... ON CONFLICT DO UPDATE so re-running a sync
 never creates duplicates and always refreshes scores that Whoop has recomputed.
 """
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from app import whoop_client
-from app.models import Cycle, Profile, Recovery, Sleep, Workout
+from app.models import Cycle, Profile, Recovery, Sleep, SyncRun, Workout
 
 
 def _dt(value: str | None) -> datetime | None:
@@ -158,3 +158,38 @@ def sync_all(db: Session, params: dict | None = None) -> dict[str, int]:
         "sleep": sync_sleep(db, params),
         "workouts": sync_workouts(db, params),
     }
+
+
+def run_and_log(
+    db: Session, trigger: str, params: dict | None = None
+) -> SyncRun:
+    """Run :func:`sync_all` and record the outcome in the ``sync_runs`` table.
+
+    Re-raises any exception after logging it so callers can still surface errors
+    (e.g. as an HTTP 401), while the failure is persisted for auditing.
+    """
+    run = SyncRun(
+        trigger=trigger,
+        status="running",
+        since=(params or {}).get("start"),
+        started_at=datetime.now(timezone.utc),
+    )
+    db.add(run)
+    db.commit()
+    db.refresh(run)
+
+    try:
+        counts = sync_all(db, params)
+    except Exception as exc:
+        run.status = "error"
+        run.error = str(exc)
+        run.finished_at = datetime.now(timezone.utc)
+        db.commit()
+        raise
+
+    run.status = "success"
+    run.counts = counts
+    run.finished_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(run)
+    return run
