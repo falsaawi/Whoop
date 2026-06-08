@@ -312,3 +312,8 @@ curl https://<your-project>.vercel.app/sync/history | python -m json.tool
   registered on the developer portal exactly (scheme, host, port, path).
 - **Can't connect to DB** → is `docker compose up -d` running? Does
   `DATABASE_URL` match?
+- **`TypeError: cannot use a string pattern on a bytes-like object` on startup**
+  → the DB connection negotiated `SQL_ASCII` (happens with a `C`/POSIX locale
+  runtime). This is already handled: the engine pins `client_encoding=utf-8`
+  (see `app/database.py`). Make sure your hosted database is created with
+  **UTF8** encoding (Neon/Supabase/Vercel Postgres all are by default).
