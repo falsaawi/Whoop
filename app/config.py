@@ -1,7 +1,37 @@
 """Application configuration loaded from environment variables / .env file."""
+import os
 from functools import lru_cache
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from sqlalchemy.engine import make_url
+
+# Alternative env vars that may hold the Postgres URL, e.g. injected by the
+# Vercel/Neon marketplace integration (prefixed with the project name).
+_DB_URL_FALLBACK_VARS = (
+    "Whoop_DATABASE_URL",
+    "Whoop_POSTGRES_URL",
+    "POSTGRES_URL",
+    "NEON_DATABASE_URL",
+)
+
+
+def _normalize_db_url(url: str) -> str:
+    """Rewrite generic Postgres schemes to SQLAlchemy's psycopg3 dialect."""
+    for prefix in ("postgres://", "postgresql://"):
+        if url.startswith(prefix):
+            return "postgresql+psycopg://" + url[len(prefix):]
+    return url
+
+
+def _is_usable_db_url(url: str) -> bool:
+    """True if the URL parses and has a plausible remote host (catches the
+    literal '…' left behind by copying a truncated string from a dashboard)."""
+    try:
+        host = make_url(url).host or ""
+    except Exception:
+        return False
+    return bool(host) and host.isascii() and host not in ("localhost", "127.0.0.1")
 
 
 class Settings(BaseSettings):
@@ -37,6 +67,20 @@ class Settings(BaseSettings):
     auto_create_tables: bool = True
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    @model_validator(mode="after")
+    def _resolve_database_url(self) -> "Settings":
+        candidates = [self.database_url] + [
+            os.environ.get(var, "") for var in _DB_URL_FALLBACK_VARS
+        ]
+        for candidate in candidates:
+            if candidate and _is_usable_db_url(candidate):
+                self.database_url = _normalize_db_url(candidate)
+                return self
+        # Nothing remote found; keep the (normalized) configured value so
+        # local development against localhost still works.
+        self.database_url = _normalize_db_url(self.database_url)
+        return self
 
     @property
     def scope_list(self) -> list[str]:
