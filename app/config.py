@@ -48,7 +48,7 @@ class Settings(BaseSettings):
     # Whoop API endpoints (override-able, e.g. to switch API version)
     whoop_auth_url: str = "https://api.prod.whoop.com/oauth/oauth2/auth"
     whoop_token_url: str = "https://api.prod.whoop.com/oauth/oauth2/token"
-    whoop_api_base: str = "https://api.prod.whoop.com/developer/v1"
+    whoop_api_base: str = "https://api.prod.whoop.com/developer/v2"
 
     # Database
     database_url: str = "postgresql+psycopg://whoop:whoop@localhost:5432/whoop"
