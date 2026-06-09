@@ -4,6 +4,7 @@ Handles the OAuth 2.0 authorization-code flow, automatic access-token refresh,
 and paginated collection fetching.  Tokens are persisted in the ``oauth_tokens``
 table via :class:`app.models.TokenStore`.
 """
+import time
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode
 
@@ -120,14 +121,23 @@ def get_collection(db: Session, path: str, params: dict | None = None) -> list[d
     ``next_token`` until it is absent, accumulating all records.
     """
     params = dict(params or {})
+    # 25 is the v2 maximum page size; the default of 10 burns through the
+    # per-minute request quota 2.5x faster on full-history pulls.
+    params.setdefault("limit", 25)
     records: list[dict] = []
     url = f"{settings.whoop_api_base}{path}"
+    throttle_retries = 0
 
     with httpx.Client(timeout=30) as client:
         while True:
             access_token = get_valid_access_token(db)
             headers = {"Authorization": f"Bearer {access_token}"}
             resp = client.get(url, headers=headers, params=params)
+            if resp.status_code == 429 and throttle_retries < 8:
+                throttle_retries += 1
+                wait = min(int(resp.headers.get("Retry-After") or 15), 60)
+                time.sleep(wait)
+                continue
             resp.raise_for_status()
             body = resp.json()
 
