@@ -131,6 +131,18 @@ creating duplicates (INSERT … ON CONFLICT DO UPDATE).
 
 ## Step 7 — Read your stored data
 
+Open the visual dashboard in your browser:
+
+```
+http://localhost:8000/dashboard
+```
+
+It summarises averages (recovery, strain, sleep, HRV, RHR, …), draws trend
+charts, and lists recent workouts. A range selector (7d / 30d / 90d / 1y)
+re-queries `GET /api/summary?days=N` behind the scenes.
+
+Or hit the raw collections directly:
+
 ```bash
 curl http://localhost:8000/profile
 curl http://localhost:8000/recovery
@@ -257,6 +269,8 @@ manually with the `curl …/cron/sync` command above to test it.
 app/
 ├── main.py          FastAPI app: /sync, /cron/sync, read + admin endpoints
 ├── auth.py          OAuth login + callback routes
+├── dashboard.py     /dashboard HTML page + /api/summary JSON endpoint
+├── summary.py       Aggregate stored data into averages / trends / distributions
 ├── whoop_client.py  OAuth flow, token refresh, paginated API fetching
 ├── sync.py          Map Whoop records -> DB rows, idempotent upserts + run log
 ├── models.py        SQLAlchemy tables (data, oauth_tokens, sync_runs audit log)
@@ -291,6 +305,8 @@ requirements.txt
 | GET    | `/cron/sync`     | Daily incremental sync (Vercel Cron; needs `CRON_SECRET`) |
 | POST   | `/admin/init-db` | Create tables once after deploy (needs `CRON_SECRET`) |
 | GET    | `/sync/history`  | Audit log of recent sync runs (status, counts, errors) |
+| GET    | `/dashboard`     | Visual summary page (HTML + Chart.js)    |
+| GET    | `/api/summary`   | Aggregated JSON behind the dashboard (`?days=N`) |
 | GET    | `/profile`       | Stored profile                           |
 | GET    | `/cycles`        | Stored physiological cycles              |
 | GET    | `/recovery`      | Stored recovery scores                   |

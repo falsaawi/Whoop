@@ -12,6 +12,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from app import sync
 from app.auth import router as auth_router
 from app.config import get_settings
+from app.dashboard import router as dashboard_router
 from app.database import get_db, init_db
 from app.models import Cycle, Profile, Recovery, Sleep, SyncRun, Workout
 from app.whoop_client import WhoopAuthError
@@ -25,6 +26,7 @@ app = FastAPI(
 )
 app.add_middleware(SessionMiddleware, secret_key=settings.session_secret)
 app.include_router(auth_router)
+app.include_router(dashboard_router)
 
 
 @app.on_event("startup")
@@ -40,7 +42,7 @@ def root():
         "next_steps": [
             "1. GET /auth/login to connect your Whoop account",
             "2. POST /sync to pull your data into PostgreSQL",
-            "3. GET /recovery, /sleep, /workouts, /cycles, /profile to read it",
+            "3. GET /dashboard for a visual summary, or /recovery, /sleep, /workouts, /cycles, /profile for raw data",
         ],
     }
 
