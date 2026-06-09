@@ -5,9 +5,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    # Whoop OAuth
-    whoop_client_id: str
-    whoop_client_secret: str
+    # Whoop OAuth. Empty defaults keep the app importable when env vars are
+    # missing (e.g. fresh deploy); /health reports them as unconfigured.
+    whoop_client_id: str = ""
+    whoop_client_secret: str = ""
     whoop_redirect_uri: str = "http://localhost:8000/auth/callback"
     whoop_scopes: str = (
         "offline read:recovery read:cycles read:sleep "

@@ -2,10 +2,11 @@
 
 Run with:  uvicorn app.main:app --reload
 """
+import logging
 from datetime import datetime, timedelta, timezone
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 from starlette.middleware.sessions import SessionMiddleware
 
@@ -32,7 +33,10 @@ app.include_router(dashboard_router)
 @app.on_event("startup")
 def on_startup() -> None:
     if settings.auto_create_tables:
-        init_db()
+        try:
+            init_db()
+        except Exception as exc:  # keep the app up so /health can report it
+            logging.getLogger(__name__).warning("init_db failed on startup: %s", exc)
 
 
 @app.get("/")
@@ -49,7 +53,30 @@ def root():
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    """Liveness check that also reports what's left to configure."""
+    missing = [
+        name
+        for name, value in (
+            ("WHOOP_CLIENT_ID", settings.whoop_client_id),
+            ("WHOOP_CLIENT_SECRET", settings.whoop_client_secret),
+            ("CRON_SECRET", settings.cron_secret),
+        )
+        if not value
+    ]
+    if "localhost" in settings.database_url:
+        missing.append("DATABASE_URL (still pointing at localhost)")
+
+    from app.database import engine
+
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        database = "ok"
+    except Exception as exc:
+        database = f"unreachable: {str(exc)[:200]}"
+
+    status = "ok" if not missing and database == "ok" else "needs_configuration"
+    return {"status": status, "missing_env_vars": missing, "database": database}
 
 
 @app.post("/admin/init-db")
