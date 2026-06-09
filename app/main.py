@@ -3,6 +3,7 @@
 Run with:  uvicorn app.main:app --reload
 """
 import logging
+import socket
 from datetime import datetime, timedelta, timezone
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
@@ -68,6 +69,15 @@ def health():
 
     from app.database import engine
 
+    # On Vercel/Lambda a bad hostname surfaces as a cryptic EBUSY, so check
+    # DNS explicitly and expose the host (never credentials) to aid debugging.
+    db_host = engine.url.host or ""
+    try:
+        socket.getaddrinfo(db_host, engine.url.port or 5432)
+        dns = "ok"
+    except OSError as exc:
+        dns = f"cannot resolve: {exc}"
+
     try:
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
@@ -76,7 +86,13 @@ def health():
         database = f"unreachable: {str(exc)[:200]}"
 
     status = "ok" if not missing and database == "ok" else "needs_configuration"
-    return {"status": status, "missing_env_vars": missing, "database": database}
+    return {
+        "status": status,
+        "missing_env_vars": missing,
+        "database": database,
+        "database_host": repr(db_host),
+        "database_host_dns": dns,
+    }
 
 
 @app.post("/admin/init-db")
