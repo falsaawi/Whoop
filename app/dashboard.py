@@ -7,7 +7,7 @@ Routes:
 - ``GET /dashboard``           — self-contained HTML app rendering the insights
   with Chart.js from a CDN. No templating engine or static mount required.
 """
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
@@ -17,26 +17,37 @@ from app.summary import compute_summary
 
 router = APIRouter(tags=["dashboard"])
 
+# Vercel's edge CDN honours s-maxage and purges on every deployment.
+# stale-while-revalidate serves the cached copy instantly while refreshing in
+# the background, hiding both serverless cold starts and DB wake-ups.
+# Data only changes on the daily cron or a manual sync (which cache-busts).
+_DATA_CACHE = "public, s-maxage=600, stale-while-revalidate=86400"
+_PAGE_CACHE = "public, s-maxage=86400, stale-while-revalidate=604800"
+
 
 @router.get("/api/summary")
 def api_summary(
+    response: Response,
     days: int = Query(30, ge=1, le=3650),
     db: Session = Depends(get_db),
 ):
+    response.headers["Cache-Control"] = _DATA_CACHE
     return compute_summary(db, days=days)
 
 
 @router.get("/api/insights")
 def api_insights(
+    response: Response,
     days: int = Query(90, ge=7, le=3650),
     db: Session = Depends(get_db),
 ):
+    response.headers["Cache-Control"] = _DATA_CACHE
     return compute_insights(db, days=days)
 
 
 @router.get("/dashboard", response_class=HTMLResponse)
 def dashboard() -> HTMLResponse:
-    return HTMLResponse(_PAGE)
+    return HTMLResponse(_PAGE, headers={"Cache-Control": _PAGE_CACHE})
 
 
 _PAGE = """<!DOCTYPE html>
@@ -490,12 +501,13 @@ _PAGE = """<!DOCTYPE html>
     }
 
     /* ---------- load ---------- */
-    async function load(days) {
+    async function load(days, bustCache) {
       currentDays = days;
       const meta = document.getElementById('meta');
       meta.innerHTML = '<span class="loading">Loading…</span>';
       try {
-        const resp = await fetch(`/api/insights?days=${days}`);
+        const url = `/api/insights?days=${days}` + (bustCache ? `&_=${Date.now()}` : '');
+        const resp = await fetch(url);
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const s = await resp.json();
         const name = s.profile && s.profile.name ? s.profile.name : 'You';
@@ -527,7 +539,7 @@ _PAGE = """<!DOCTYPE html>
       try {
         const resp = await fetch('/sync', { method: 'POST' });
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-        await load(currentDays);
+        await load(currentDays, true);
         btn.textContent = '✓ Synced';
       } catch (err) {
         btn.textContent = 'Sync failed — retry';
