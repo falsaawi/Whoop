@@ -9,7 +9,7 @@ is fast and avoids fragile SQL aggregations across the join.
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, load_only
 
 from app.models import Cycle, Profile, Recovery, Sleep, Workout
 
@@ -37,9 +37,19 @@ def _bucket(score: float | None) -> str | None:
 def compute_summary(db: Session, days: int = 30) -> dict:
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
 
+    # load_only skips the bulky ``raw`` JSON column, which the summary never
+    # reads but dominates row size on the wire.
     cycles = list(
         db.scalars(
-            select(Cycle).where(Cycle.start >= cutoff).order_by(Cycle.start)
+            select(Cycle)
+            .options(
+                load_only(
+                    Cycle.id, Cycle.start, Cycle.strain,
+                    Cycle.kilojoule, Cycle.max_heart_rate,
+                )
+            )
+            .where(Cycle.start >= cutoff)
+            .order_by(Cycle.start)
         ).all()
     )
     cycle_ids = [c.id for c in cycles]
@@ -48,19 +58,45 @@ def compute_summary(db: Session, days: int = 30) -> dict:
     if cycle_ids:
         recoveries = list(
             db.scalars(
-                select(Recovery).where(Recovery.cycle_id.in_(cycle_ids))
+                select(Recovery)
+                .options(
+                    load_only(
+                        Recovery.cycle_id, Recovery.recovery_score,
+                        Recovery.hrv_rmssd_milli, Recovery.resting_heart_rate,
+                        Recovery.spo2_percentage, Recovery.skin_temp_celsius,
+                    )
+                )
+                .where(Recovery.cycle_id.in_(cycle_ids))
             ).all()
         )
 
     sleeps = list(
         db.scalars(
-            select(Sleep).where(Sleep.start >= cutoff).order_by(Sleep.start)
+            select(Sleep)
+            .options(
+                load_only(
+                    Sleep.id, Sleep.start, Sleep.end, Sleep.nap,
+                    Sleep.sleep_performance_percentage, Sleep.respiratory_rate,
+                )
+            )
+            .where(Sleep.start >= cutoff)
+            .order_by(Sleep.start)
         ).all()
     )
 
     workouts = list(
         db.scalars(
-            select(Workout).where(Workout.start >= cutoff).order_by(Workout.start)
+            select(Workout)
+            .options(
+                load_only(
+                    Workout.id, Workout.start, Workout.end,
+                    Workout.sport_id, Workout.sport_name, Workout.strain,
+                    Workout.kilojoule, Workout.average_heart_rate,
+                    Workout.max_heart_rate,
+                )
+            )
+            .where(Workout.start >= cutoff)
+            .order_by(Workout.start)
         ).all()
     )
 
