@@ -141,6 +141,25 @@ It summarises averages (recovery, strain, sleep, HRV, RHR, …), draws trend
 charts, and lists recent workouts. A range selector (7d / 30d / 90d / 1y)
 re-queries `GET /api/summary?days=N` behind the scenes.
 
+### Body map (organs + ICD-10 health profile)
+
+```
+http://localhost:8000/body
+```
+
+An interactive human "buddy" figure where each organ is colour-coded by health
+status (healthy / watch / alert / not monitored). It projects the wearable
+signals Whoop provides — resting heart rate, HRV, SpO2, respiratory rate, skin
+temperature, sleep and training strain — onto the organ or body system they
+speak to, and links each organ to the relevant **ICD-10 codes**. Click an organ
+to see the signals behind its status and which ICD-10 conditions a deviation may
+relate to (flagged ones are highlighted).
+
+This is a wellness view, **not a diagnosis** — a consumer wearable surfaces
+deviations from *your own* baseline; the ICD-10 links just give the profile a
+standard clinical vocabulary. The same data is available as JSON at
+`GET /api/body?days=N`.
+
 Or hit the raw collections directly:
 
 ```bash
@@ -270,6 +289,9 @@ app/
 ├── main.py          FastAPI app: /sync, /cron/sync, read + admin endpoints
 ├── auth.py          OAuth login + callback routes
 ├── dashboard.py     /dashboard HTML page + /api/summary JSON endpoint
+├── body.py          Organ catalogue: maps Whoop signals + ICD-10 codes to organs
+├── body_page.py     /body interactive figure + /api/body organ health profile
+├── insights.py      Baselines, trends, records, rule-based recommendations
 ├── summary.py       Aggregate stored data into averages / trends / distributions
 ├── whoop_client.py  OAuth flow, token refresh, paginated API fetching
 ├── sync.py          Map Whoop records -> DB rows, idempotent upserts + run log
@@ -306,6 +328,9 @@ requirements.txt
 | POST   | `/admin/init-db` | Create tables once after deploy (needs `CRON_SECRET`) |
 | GET    | `/sync/history`  | Audit log of recent sync runs (status, counts, errors) |
 | GET    | `/dashboard`     | Visual summary page (HTML + Chart.js)    |
+| GET    | `/body`          | Interactive organ figure with ICD-10 health profile |
+| GET    | `/api/body`      | Organ-level health profile JSON (`?days=N`) |
+| GET    | `/api/insights`  | Full analysis JSON: baselines, trends, recommendations (`?days=N`) |
 | GET    | `/api/summary`   | Aggregated JSON behind the dashboard (`?days=N`) |
 | GET    | `/profile`       | Stored profile                           |
 | GET    | `/cycles`        | Stored physiological cycles              |

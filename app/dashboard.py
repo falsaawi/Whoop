@@ -252,6 +252,7 @@ _PAGE = """<!DOCTYPE html>
     </section>
   </main>
   <footer>
+    <a href="/body">&#129728; Body map (ICD-10)</a> ·
     Raw data: <a href="/recovery">/recovery</a> · <a href="/sleep">/sleep</a> ·
     <a href="/workouts">/workouts</a> · <a href="/cycles">/cycles</a> ·
     <a href="/api/insights?days=90">/api/insights</a> ·
