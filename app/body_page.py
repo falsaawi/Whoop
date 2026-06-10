@@ -99,10 +99,23 @@ _PAGE = """<!DOCTYPE html>
     .dot.ok { background: var(--ok); } .dot.watch { background: var(--watch); }
     .dot.alert { background: var(--alert); } .dot.unmon { background: var(--unmon); }
 
-    .organ-node { cursor: pointer; transition: r 120ms; }
-    .organ-node:hover { stroke: #fff; stroke-width: 2; }
-    .organ-node.selected { stroke: #fff; stroke-width: 2.5; }
-    .organ-label { font-size: 8px; fill: var(--muted); pointer-events: none; }
+    #figure { display: block; margin: 0 auto; max-height: 560px; }
+    .organ-hit { cursor: pointer; fill: transparent; }
+    .organ-node { pointer-events: none; transition: opacity 120ms; }
+    .organ-ring { pointer-events: none; }
+    .organ-hit:hover + .organ-node { stroke: #fff; stroke-width: 2; }
+    .organ-dot.selected { stroke: #fff; stroke-width: 2.5; }
+    .organ-pulse { transform-box: fill-box; transform-origin: center;
+      animation: pulse 1.8s ease-out infinite; }
+    @keyframes pulse {
+      0% { transform: scale(0.8); opacity: 0.55; }
+      70% { transform: scale(2.2); opacity: 0; }
+      100% { opacity: 0; }
+    }
+    .organ-label { font-size: 9px; font-weight: 600; fill: #cfd6e4;
+      pointer-events: none; paint-order: stroke; stroke: #0b0d12;
+      stroke-width: 2.6px; stroke-linejoin: round; }
+    .organ-label.dim { fill: var(--muted); }
 
     .detail {
       background: var(--panel); border: 1px solid var(--border);
@@ -160,19 +173,66 @@ _PAGE = """<!DOCTYPE html>
     </div>
     <div class="layout">
       <div class="figure-card">
-        <svg id="figure" viewBox="0 0 200 420" width="100%" aria-label="Human body figure">
-          <!-- body silhouette -->
-          <g fill="#1b2030" stroke="#2c3445" stroke-width="1.5">
-            <circle cx="100" cy="34" r="26" />
-            <rect x="92" y="58" width="16" height="14" rx="4" />
-            <path d="M70 74 Q100 66 130 74 L138 180 Q138 210 128 244 L120 250 L80 250 L72 244 Q62 210 62 180 Z" />
-            <!-- arms -->
-            <path d="M70 78 L48 96 L40 170 L50 172 L60 104 Z" />
-            <path d="M130 78 L152 96 L160 170 L150 172 L140 104 Z" />
-            <!-- legs -->
-            <path d="M82 250 L78 340 L74 400 L88 400 L94 342 L100 300 Z" />
-            <path d="M118 250 L122 340 L126 400 L112 400 L106 342 L100 300 Z" />
+        <svg id="figure" viewBox="0 0 240 520" width="100%" aria-label="Human body figure">
+          <defs>
+            <linearGradient id="bodyGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stop-color="#283246" />
+              <stop offset="0.55" stop-color="#1d2536" />
+              <stop offset="1" stop-color="#161c29" />
+            </linearGradient>
+            <radialGradient id="bodyHi" cx="0.5" cy="0.32" r="0.7">
+              <stop offset="0" stop-color="#3a486a" stop-opacity="0.55" />
+              <stop offset="1" stop-color="#3a486a" stop-opacity="0" />
+            </radialGradient>
+            <filter id="nodeGlow" x="-80%" y="-80%" width="260%" height="260%">
+              <feGaussianBlur stdDeviation="3" result="b" />
+              <feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge>
+            </filter>
+          </defs>
+
+          <!-- body silhouette: head, neck, torso, arms, legs -->
+          <g fill="url(#bodyGrad)" stroke="#3a4763" stroke-width="1.4"
+             stroke-linejoin="round">
+            <!-- head -->
+            <path d="M120 12
+                     C 136 12 149 27 149 46
+                     C 149 62 140 75 120 78
+                     C 100 75 91 62 91 46
+                     C 91 27 104 12 120 12 Z" />
+            <!-- neck -->
+            <path d="M110 72 L110 92 Q120 98 130 92 L130 72 Z" />
+            <!-- torso -->
+            <path d="M86 96
+                     Q120 86 154 96
+                     Q168 102 170 116
+                     L162 152 Q159 168 156 186
+                     L152 230 Q150 258 142 286
+                     Q121 296 98 286
+                     Q90 258 88 230
+                     L84 186 Q81 168 78 152
+                     L70 116 Q72 102 86 96 Z" />
+            <!-- left arm -->
+            <path d="M84 100 Q66 106 60 124 L46 206 Q43 232 48 258
+                     L60 258 Q60 232 64 206 L76 134 Q78 116 88 110 Z" />
+            <!-- right arm -->
+            <path d="M156 100 Q174 106 180 124 L194 206 Q197 232 192 258
+                     L180 258 Q180 232 176 206 L164 134 Q162 116 152 110 Z" />
+            <!-- left leg -->
+            <path d="M118 290 L116 300 Q100 308 96 300 L98 290
+                     Q92 360 88 420 L82 506 L102 506 L108 420
+                     Q112 360 116 308 Z" />
+            <!-- right leg -->
+            <path d="M122 290 L124 300 Q140 308 144 300 L142 290
+                     Q148 360 152 420 L158 506 L138 506 L132 420
+                     Q128 360 124 308 Z" />
           </g>
+
+          <!-- soft top highlight + faint anatomical centre line -->
+          <ellipse cx="120" cy="150" rx="78" ry="120" fill="url(#bodyHi)" />
+          <line x1="120" y1="100" x2="120" y2="286" stroke="#46557a"
+                stroke-width="0.8" stroke-opacity="0.4" stroke-dasharray="2 4" />
+
+          <g id="organ-links"></g>
           <g id="organs"></g>
           <g id="organ-labels"></g>
         </svg>
@@ -209,23 +269,60 @@ _PAGE = """<!DOCTYPE html>
       return node;
     }
 
+    // Labels sit left or right of the node so they don't collide with the body.
+    const LABEL_SIDE = {
+      brain: 'top', airway: 'right', lungs: 'left', heart: 'right',
+      immune: 'left', liver: 'left', stomach: 'right', kidneys: 'right',
+      skin: 'right', muscles: 'left',
+    };
+
     function renderFigure(organs) {
       const g = document.getElementById('organs');
       const labels = document.getElementById('organ-labels');
       g.innerHTML = ''; labels.innerHTML = '';
       organs.forEach((o) => {
-        const c = el('circle', {
-          cx: o.x, cy: o.y, r: 9,
-          fill: COLOR[o.status] || COLOR.unmonitored,
-          'fill-opacity': o.status === 'unmonitored' ? 0.5 : 0.9,
-          stroke: '#0b0d12', 'stroke-width': 1.5,
-          class: 'organ-node' + (o.id === selectedId ? ' selected' : ''),
-        });
-        c.dataset.id = o.id;
-        c.addEventListener('click', () => select(o.id));
-        g.appendChild(c);
+        const color = COLOR[o.status] || COLOR.unmonitored;
+        const node = el('g', { class: 'organ-node' });
+
+        // soft glow halo
+        node.appendChild(el('circle', {
+          cx: o.x, cy: o.y, r: 11, fill: color,
+          'fill-opacity': o.status === 'unmonitored' ? 0.12 : 0.22,
+          filter: 'url(#nodeGlow)', class: 'organ-ring',
+        }));
+        // pulsing ring for organs that need attention
+        if (o.status === 'alert' || o.status === 'watch') {
+          node.appendChild(el('circle', {
+            cx: o.x, cy: o.y, r: 8, fill: 'none', stroke: color,
+            'stroke-width': 2, class: 'organ-pulse',
+          }));
+        }
+        // the dot
+        node.appendChild(el('circle', {
+          cx: o.x, cy: o.y, r: 7.5, fill: color,
+          'fill-opacity': o.status === 'unmonitored' ? 0.55 : 1,
+          stroke: '#0b0d12', 'stroke-width': 1.6,
+          class: 'organ-dot' + (o.id === selectedId ? ' selected' : ''),
+          'data-id': o.id,
+        }));
+        g.appendChild(node);
+
+        // transparent larger hit target for easy clicking
+        const hit = el('circle', { cx: o.x, cy: o.y, r: 13, class: 'organ-hit' });
+        hit.dataset.id = o.id;
+        hit.addEventListener('click', () => select(o.id));
+        g.insertBefore(hit, node);
+
+        // label, offset to a clear side
+        const side = LABEL_SIDE[o.id] || 'right';
+        let lx = o.x, ly = o.y, anchor = 'middle';
+        if (side === 'left') { lx = o.x - 14; anchor = 'end'; ly = o.y + 3; }
+        else if (side === 'right') { lx = o.x + 14; anchor = 'start'; ly = o.y + 3; }
+        else { ly = o.y - 15; anchor = 'middle'; }
         const lbl = el('text', {
-          x: o.x, y: o.y - 12, 'text-anchor': 'middle', class: 'organ-label',
+          x: lx, y: ly, 'text-anchor': anchor,
+          class: 'organ-label' + (o.status === 'unmonitored' ? ' dim' : ''),
+          'data-id': o.id,
         }, o.name);
         labels.appendChild(lbl);
       });
@@ -261,8 +358,11 @@ _PAGE = """<!DOCTYPE html>
 
     function select(id) {
       selectedId = id;
-      document.querySelectorAll('.organ-node').forEach((n) => {
+      document.querySelectorAll('.organ-dot').forEach((n) => {
         n.classList.toggle('selected', n.dataset.id === id);
+      });
+      document.querySelectorAll('.organ-label').forEach((n) => {
+        n.style.fontWeight = n.dataset.id === id ? '800' : '600';
       });
       const o = data.organs.find((x) => x.id === id);
       renderDetail(o);

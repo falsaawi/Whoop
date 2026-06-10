@@ -265,7 +265,7 @@ def _unmonitored(reason: str):
 ORGANS: list[dict] = [
     {
         "id": "brain", "name": "Brain", "system": "Nervous / Sleep",
-        "x": 100, "y": 34,
+        "x": 120, "y": 42,
         "metrics": ["Sleep duration", "Sleep performance", "Sleep consistency"],
         "icd10": [
             _icd("G47.00", "Insomnia, unspecified"),
@@ -277,7 +277,7 @@ ORGANS: list[dict] = [
     },
     {
         "id": "airway", "name": "Upper airway", "system": "Respiratory / Sleep",
-        "x": 100, "y": 92,
+        "x": 120, "y": 96,
         "metrics": ["SpO2", "Respiratory rate", "Sleep performance"],
         "icd10": [
             _icd("G47.33", "Obstructive sleep apnea (adult/pediatric)"),
@@ -287,7 +287,7 @@ ORGANS: list[dict] = [
     },
     {
         "id": "lungs", "name": "Lungs", "system": "Respiratory",
-        "x": 78, "y": 150,
+        "x": 100, "y": 154,
         "metrics": ["SpO2", "Respiratory rate"],
         "icd10": [
             _icd("R09.02", "Hypoxemia"),
@@ -299,7 +299,7 @@ ORGANS: list[dict] = [
     },
     {
         "id": "heart", "name": "Heart", "system": "Cardiovascular",
-        "x": 112, "y": 150,
+        "x": 140, "y": 158,
         "metrics": ["Resting heart rate", "Heart-rate variability (HRV)", "Recovery"],
         "icd10": [
             _icd("I10", "Essential (primary) hypertension"),
@@ -312,7 +312,7 @@ ORGANS: list[dict] = [
     },
     {
         "id": "immune", "name": "Immune system", "system": "Systemic",
-        "x": 100, "y": 178,
+        "x": 120, "y": 188,
         "metrics": ["Skin temperature", "Respiratory rate", "Resting heart rate"],
         "icd10": [
             _icd("R50.9", "Fever, unspecified"),
@@ -323,7 +323,7 @@ ORGANS: list[dict] = [
     },
     {
         "id": "liver", "name": "Liver", "system": "Hepatic / Metabolic",
-        "x": 84, "y": 196,
+        "x": 102, "y": 214,
         "metrics": ["Not directly measured by Whoop"],
         "icd10": [
             _icd("K76.0", "Fatty (change of) liver, not elsewhere classified"),
@@ -336,7 +336,7 @@ ORGANS: list[dict] = [
     },
     {
         "id": "stomach", "name": "Stomach / Gut", "system": "Digestive",
-        "x": 116, "y": 198,
+        "x": 140, "y": 214,
         "metrics": ["Not directly measured by Whoop"],
         "icd10": [
             _icd("K30", "Functional dyspepsia"),
@@ -349,7 +349,7 @@ ORGANS: list[dict] = [
     },
     {
         "id": "kidneys", "name": "Kidneys", "system": "Renal / Hydration",
-        "x": 100, "y": 220,
+        "x": 120, "y": 242,
         "metrics": ["Not directly measured by Whoop"],
         "icd10": [
             _icd("E86.0", "Dehydration"),
@@ -362,7 +362,7 @@ ORGANS: list[dict] = [
     },
     {
         "id": "skin", "name": "Skin", "system": "Integumentary",
-        "x": 100, "y": 250,
+        "x": 184, "y": 252,
         "metrics": ["Skin temperature"],
         "icd10": [
             _icd("R50.9", "Fever, unspecified"),
@@ -372,7 +372,7 @@ ORGANS: list[dict] = [
     },
     {
         "id": "muscles", "name": "Muscles", "system": "Musculoskeletal",
-        "x": 78, "y": 300,
+        "x": 102, "y": 330,
         "metrics": ["Training strain", "Recovery", "Workout frequency"],
         "icd10": [
             _icd("M79.1", "Myalgia"),
