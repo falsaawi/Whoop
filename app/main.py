@@ -11,7 +11,9 @@ import socket
 from datetime import datetime, timedelta, timezone
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
-from sqlalchemy import select, text
+from fastapi import Response
+from sqlalchemy import func, select, text
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 from starlette.middleware.sessions import SessionMiddleware
 
@@ -20,7 +22,9 @@ from app.auth import router as auth_router
 from app.config import get_settings
 from app.dashboard import router as dashboard_router
 from app.database import get_db, init_db
-from app.models import Cycle, Profile, Recovery, Sleep, SyncRun, Workout
+from app.models import (
+    Cycle, HeartRateSample, Profile, Recovery, Sleep, SyncRun, Workout,
+)
 from app.whoop_client import WhoopAuthError
 
 settings = get_settings()
@@ -219,6 +223,72 @@ async def whoop_webhook(request: Request, db: Session = Depends(get_db)):
         # Still 200: webhook retries can't fix auth; the error is logged in sync_runs.
         return {"status": "auth_error", "detail": str(exc)}
     return {"status": "ok", "run_id": run.id, "event": event_type, "synced": run.counts}
+
+
+@app.post("/ingest/heart-rate")
+def ingest_heart_rate(payload: dict, request: Request, db: Session = Depends(get_db)):
+    """Receive continuous heart-rate samples from a local BLE collector.
+
+    Body: {"samples": [{"ts": "2026-06-12T10:00:00Z", "bpm": 62}, ...],
+           "source": "ble"}
+    Auth: Authorization: Bearer <CRON_SECRET> (same secret as the cron).
+    """
+    _verify_cron(request)
+    samples = payload.get("samples") or []
+    if not samples:
+        return {"stored": 0}
+    if len(samples) > 5000:
+        raise HTTPException(status_code=413, detail="Too many samples in one batch.")
+    source = str(payload.get("source") or "ble")[:32]
+
+    rows = []
+    for s in samples:
+        try:
+            ts = datetime.fromisoformat(str(s["ts"]).replace("Z", "+00:00"))
+            bpm = float(s["bpm"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        if 20 <= bpm <= 250:
+            rows.append({"ts": ts, "bpm": bpm, "source": source})
+    if rows:
+        stmt = pg_insert(HeartRateSample).values(rows)
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["ts"], set_={"bpm": stmt.excluded.bpm}
+        )
+        db.execute(stmt)
+        db.commit()
+    return {"stored": len(rows)}
+
+
+@app.get("/api/heart-rate")
+def api_heart_rate(
+    response: Response,
+    hours: int = Query(6, ge=1, le=168),
+    db: Session = Depends(get_db),
+):
+    """Minute-averaged continuous heart rate for the last N hours."""
+    response.headers["Cache-Control"] = "public, s-maxage=60, stale-while-revalidate=300"
+    since = datetime.now(timezone.utc) - timedelta(hours=hours)
+    minute = func.date_trunc("minute", HeartRateSample.ts).label("t")
+    stmt = (
+        select(
+            minute,
+            func.avg(HeartRateSample.bpm).label("avg"),
+            func.min(HeartRateSample.bpm).label("min"),
+            func.max(HeartRateSample.bpm).label("max"),
+        )
+        .where(HeartRateSample.ts >= since)
+        .group_by(minute)
+        .order_by(minute)
+    )
+    points = [
+        {"t": row.t.isoformat(), "avg": round(row.avg, 1),
+         "min": row.min, "max": row.max}
+        for row in db.execute(stmt).all()
+    ]
+    return {"hours": hours, "points": points}
 
 
 @app.get("/sync/history")

@@ -217,6 +217,17 @@ _PAGE = """<!DOCTYPE html>
       <div class="stats" id="today-stats"></div>
     </div>
 
+    <section id="live-hr-section" style="display:none;">
+      <h3>Live heart rate <span style="text-transform:none;letter-spacing:0;">(from Bluetooth broadcast collector)</span></h3>
+      <div class="stats" id="live-hr-stats" style="margin-bottom:14px;"></div>
+      <div class="grid">
+        <div class="card wide">
+          <h2>Continuous heart rate — last 6 hours (per-minute average)</h2>
+          <div class="chart-wrap" style="height:240px;"><canvas id="c-live-hr"></canvas></div>
+        </div>
+      </div>
+    </section>
+
     <section id="recs-section" style="display:none;">
       <h3>Recommendations</h3>
       <div class="recs" id="recs"></div>
@@ -356,6 +367,45 @@ _PAGE = """<!DOCTYPE html>
           (s.averages.recovery_score >= 67 ? 'green' : s.averages.recovery_score >= 34 ? 'yellow' : 'red')),
         statCard('Avg sleep', fmt(s.averages.sleep_hours, 1), 'h', 'purple'),
       ].join('');
+    }
+
+    /* ---------- live heart rate (BLE collector) ---------- */
+    async function renderLiveHR() {
+      try {
+        const resp = await fetch('/api/heart-rate?hours=6');
+        if (!resp.ok) return;
+        const data = await resp.json();
+        const pts = data.points || [];
+        if (!pts.length) return;
+        document.getElementById('live-hr-section').style.display = '';
+        const last = pts[pts.length - 1];
+        const avgAll = pts.reduce((a, p) => a + p.avg, 0) / pts.length;
+        const minAll = Math.min(...pts.map((p) => p.min));
+        const maxAll = Math.max(...pts.map((p) => p.max));
+        document.getElementById('live-hr-stats').innerHTML = [
+          statCard('Latest', fmt(last.avg, 0), 'bpm', 'red'),
+          statCard('6h average', fmt(avgAll, 0), 'bpm', 'blue'),
+          statCard('6h low', fmt(minAll, 0), 'bpm', 'green'),
+          statCard('6h high', fmt(maxAll, 0), 'bpm', 'yellow'),
+          statCard('Last sample', new Date(last.t).toLocaleTimeString(), '', ''),
+        ].join('');
+        ensureChart('livehr', 'c-live-hr', {
+          type: 'line',
+          data: { datasets: [
+            { label: 'HR', data: pts.map((p) => ({ x: p.t, y: p.avg })),
+              borderColor: COLORS.red, backgroundColor: COLORS.red + '22',
+              borderWidth: 1.5, pointRadius: 0, tension: 0.25, fill: true },
+          ]},
+          options: { responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { display: false },
+              tooltip: { callbacks: {
+                title: (items) => new Date(items[0].parsed.x).toLocaleTimeString(),
+                label: (item) => `${fmt(item.parsed.y, 0)} bpm` } } },
+            scales: {
+              x: { type: 'time', time: { unit: 'hour' }, grid: { color: COLORS.grid } },
+              y: { grid: { color: COLORS.grid } } } },
+        });
+      } catch (err) { /* no live data — section stays hidden */ }
     }
 
     /* ---------- recommendations ---------- */
@@ -587,6 +637,7 @@ _PAGE = """<!DOCTYPE html>
         }
         renderHero(s); renderRecs(s); renderTrends(s); renderSleepQuality(s);
         renderTraining(s); renderRecords(s); renderWorkouts(s);
+        renderLiveHR();
       } catch (err) {
         meta.innerHTML = `<span style="color: var(--red)">Failed to load: ${err.message}</span>`;
       }

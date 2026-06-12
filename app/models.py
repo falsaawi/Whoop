@@ -76,6 +76,18 @@ class BodyMeasurement(Base):
     )
 
 
+class HeartRateSample(Base):
+    """Continuous heart-rate samples captured from the strap's Bluetooth
+    broadcast by a local collector (see collector/whoop_ble_collector.py).
+    The official Whoop API does not expose this stream."""
+
+    __tablename__ = "heart_rate_samples"
+
+    ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
+    bpm: Mapped[float] = mapped_column(Float, nullable=False)
+    source: Mapped[str | None] = mapped_column(String(32), default="ble")
+
+
 class Cycle(Base):
     __tablename__ = "cycles"
 
