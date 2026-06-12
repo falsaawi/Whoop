@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode
 
 import httpx
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
@@ -90,14 +91,30 @@ def _refresh_token(db: Session, token: TokenStore) -> TokenStore:
         "scope": "offline",
     }
     resp = httpx.post(settings.whoop_token_url, data=data, timeout=30)
+    if resp.status_code == 400:
+        # Whoop rotates refresh tokens on every use; a 400 here means ours is
+        # stale (e.g. a concurrent refresh won the rotation). Only a fresh
+        # OAuth grant can recover.
+        raise WhoopAuthError(
+            "Whoop rejected the stored refresh token. "
+            "Re-connect your account at /auth/login to continue syncing."
+        )
     resp.raise_for_status()
     return _save_token(db, resp.json())
 
 
 def get_valid_access_token(db: Session) -> str:
-    """Return a non-expired access token, refreshing it if necessary."""
-    token = db.get(TokenStore, 1)
+    """Return a non-expired access token, refreshing it if necessary.
+
+    The token row is read with FOR UPDATE so concurrent invocations (cron +
+    manual sync) serialize: the second waits, re-reads the freshly rotated
+    token and skips its own refresh instead of invalidating the chain.
+    """
+    token = db.execute(
+        select(TokenStore).where(TokenStore.id == 1).with_for_update()
+    ).scalar_one_or_none()
     if token is None:
+        db.rollback()
         raise WhoopAuthError("Not authorized yet. Visit /auth/login first.")
 
     # Refresh if the token expires within the next 60 seconds.
@@ -106,9 +123,15 @@ def get_valid_access_token(db: Session) -> str:
         if expires_at.tzinfo is None:
             expires_at = expires_at.replace(tzinfo=timezone.utc)
         if expires_at <= datetime.now(timezone.utc) + timedelta(seconds=60):
-            token = _refresh_token(db, token)
+            try:
+                token = _refresh_token(db, token)
+            except BaseException:
+                db.rollback()
+                raise
 
-    return token.access_token
+    access_token = token.access_token
+    db.commit()  # release the row lock
+    return access_token
 
 
 # --------------------------------------------------------------------------- #
