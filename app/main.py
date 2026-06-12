@@ -284,8 +284,8 @@ def api_heart_rate(
         .order_by(minute)
     )
     points = [
-        {"t": row.t.isoformat(), "avg": round(row.avg, 1),
-         "min": row.min, "max": row.max}
+        {"t": row[0].isoformat(), "avg": round(float(row[1]), 1),
+         "min": float(row[2]), "max": float(row[3])}
         for row in db.execute(stmt).all()
     ]
     return {"hours": hours, "points": points}
