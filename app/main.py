@@ -2,6 +2,10 @@
 
 Run with:  uvicorn app.main:app --reload
 """
+import base64
+import hashlib
+import hmac
+import json
 import logging
 import socket
 from datetime import datetime, timedelta, timezone
@@ -161,6 +165,60 @@ def cron_sync(request: Request, db: Session = Depends(get_db)):
     except WhoopAuthError as exc:
         raise HTTPException(status_code=401, detail=str(exc))
     return {"run_id": run.id, "synced": run.counts, "since": start}
+
+
+@app.post("/webhooks/whoop")
+async def whoop_webhook(request: Request, db: Session = Depends(get_db)):
+    """Receive Whoop webhook events (sleep/recovery/workout created or updated)
+    and run a short lookback sync, so the data lands minutes after Whoop scores
+    it instead of waiting for the daily cron.
+
+    Signature scheme per Whoop docs: base64(HMAC-SHA256(client_secret,
+    timestamp + raw_body)) in X-WHOOP-Signature.
+    """
+    body = await request.body()
+    if settings.whoop_client_secret:
+        ts = request.headers.get("x-whoop-signature-timestamp", "")
+        provided = request.headers.get("x-whoop-signature", "")
+        expected = base64.b64encode(
+            hmac.new(
+                settings.whoop_client_secret.encode(),
+                ts.encode() + body,
+                hashlib.sha256,
+            ).digest()
+        ).decode()
+        if not hmac.compare_digest(provided, expected):
+            raise HTTPException(status_code=401, detail="Invalid webhook signature.")
+
+    try:
+        event = json.loads(body or b"{}")
+    except ValueError:
+        event = {}
+    event_type = event.get("type", "unknown")
+
+    # Whoop fires several events at once (waking up scores sleep, recovery and
+    # cycle together) — debounce so one burst triggers a single sync.
+    last = db.scalars(
+        select(SyncRun)
+        .where(SyncRun.status == "success")
+        .order_by(SyncRun.finished_at.desc())
+        .limit(1)
+    ).first()
+    now = datetime.now(timezone.utc)
+    if last and last.finished_at is not None:
+        finished = last.finished_at
+        if finished.tzinfo is None:
+            finished = finished.replace(tzinfo=timezone.utc)
+        if now - finished < timedelta(minutes=2):
+            return {"status": "skipped", "reason": "synced moments ago", "event": event_type}
+
+    start = (now - timedelta(days=3)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    try:
+        run = sync.run_and_log(db, "webhook", {"start": start})
+    except WhoopAuthError as exc:
+        # Still 200: webhook retries can't fix auth; the error is logged in sync_runs.
+        return {"status": "auth_error", "detail": str(exc)}
+    return {"status": "ok", "run_id": run.id, "event": event_type, "synced": run.counts}
 
 
 @app.get("/sync/history")

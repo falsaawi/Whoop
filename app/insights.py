@@ -14,7 +14,7 @@ from statistics import mean, pstdev
 from sqlalchemy import select
 from sqlalchemy.orm import Session, load_only
 
-from app.models import Cycle, Profile, Recovery, Sleep, Workout
+from app.models import BodyMeasurement, Cycle, Profile, Recovery, Sleep, Workout
 
 
 # --------------------------------------------------------------------------- #
@@ -95,6 +95,10 @@ def _stats(values: list[float]) -> dict:
 # --------------------------------------------------------------------------- #
 # Recommendation rules
 # --------------------------------------------------------------------------- #
+def workouts_exist(d: dict) -> bool:
+    return bool(d["counts"]["workouts"])
+
+
 def _recommendations(d: dict) -> list[dict]:
     """Turn the computed analysis into prioritised, actionable advice."""
     recs: list[dict] = []
@@ -169,6 +173,21 @@ def _recommendations(d: dict) -> list[dict]:
             "schedule disrupts circadian rhythm even when total hours are fine — "
             "aim for the same bedtime within ~30 minutes, weekends included.",
         )
+    if sleep["avg_deep_hours"] is not None and sleep["avg_deep_hours"] < 1.0:
+        add(
+            "medium", "sleep", "Deep sleep is running low",
+            f"You average {sleep['avg_deep_hours']:.1f}h of deep (slow-wave) sleep — "
+            "the stage that drives physical repair. It responds best to a cool dark "
+            "bedroom, no alcohol in the evening, and finishing intense exercise and "
+            "heavy meals 3+ hours before bed.",
+        )
+    if sleep["sleep_debt_hours"] is not None and sleep["sleep_debt_hours"] >= 0.75:
+        add(
+            "medium", "sleep", "You are carrying sleep debt",
+            f"Whoop estimates you owe about {sleep['sleep_debt_hours']:.1f}h of sleep. "
+            "An earlier night or two (or a 20-30 minute afternoon nap) will pay it "
+            "down and should show up as better recovery scores.",
+        )
     if sleep["avg_performance"] is not None and sleep["avg_performance"] < 80:
         add(
             "low", "sleep", "Sleep quality has room to improve",
@@ -197,6 +216,25 @@ def _recommendations(d: dict) -> list[dict]:
         add(
             "positive", "activity", "Solid training consistency",
             f"You average {wpw:.1f} workouts per week — keep that rhythm going.",
+        )
+
+    zones = training["zone_minutes"] or {}
+    z2_per_week = (zones.get("zone_two", 0) + zones.get("zone_three", 0)) / max(d["days"] / 7.0, 1.0)
+    if workouts_exist(d) and z2_per_week < 60:
+        add(
+            "low", "activity", "Add easy aerobic (zone 2) time",
+            f"Only ~{z2_per_week:.0f} min/week of your training is in the moderate "
+            "zones. A base of 60-150 easy aerobic minutes per week (brisk walking, "
+            "easy cycling) is the foundation for heart health and better HRV.",
+        )
+
+    body = d.get("body") or {}
+    if body.get("bmi") is not None and body["bmi"] >= 25:
+        add(
+            "low", "body", "Weight is above the optimal range",
+            f"Your BMI is {body['bmi']:.1f} (25+ counts as overweight). Combined with "
+            "more zone-2 activity and earlier nights, even a 3-5% reduction "
+            "measurably improves sleep apnea risk, HRV and resting heart rate.",
         )
 
     # --- Vitals ------------------------------------------------------------- #
@@ -256,7 +294,8 @@ def _overall_status(current: dict, trends: dict, sleep: dict) -> dict:
 # --------------------------------------------------------------------------- #
 # Core analysis (pure — takes ORM-ish rows, returns JSON-able dict)
 # --------------------------------------------------------------------------- #
-def _analyze(cycles, recoveries, sleeps, workouts, profile, days: int, cutoff: datetime) -> dict:
+def _analyze(cycles, recoveries, sleeps, workouts, profile, days: int,
+             cutoff: datetime, body=None) -> dict:
     rec_by_cycle = {r.cycle_id: r for r in recoveries}
     main_sleeps = [s for s in sleeps if not s.nap]
 
@@ -344,6 +383,45 @@ def _analyze(cycles, recoveries, sleeps, workouts, profile, days: int, cutoff: d
         "sleep_hours": _stats([p["v"] for p in series["sleep_hours"]]),
     }
 
+    # ---- sleep stages (from the raw Whoop payloads) ------------------------- #
+    sleep_stages = []
+    efficiencies, consistencies, disturbances = [], [], []
+    latest_debt_hours = None
+    for s in main_sleeps:
+        score = (getattr(s, "raw", None) or {}).get("score") or {}
+        stages = score.get("stage_summary") or {}
+        if score.get("sleep_efficiency_percentage") is not None:
+            efficiencies.append(score["sleep_efficiency_percentage"])
+        if score.get("sleep_consistency_percentage") is not None:
+            consistencies.append(score["sleep_consistency_percentage"])
+        if stages.get("disturbance_count") is not None:
+            disturbances.append(stages["disturbance_count"])
+        needed = score.get("sleep_needed") or {}
+        if needed.get("need_from_sleep_debt_milli") is not None:
+            latest_debt_hours = needed["need_from_sleep_debt_milli"] / 3_600_000.0
+        if s.start is None or not stages:
+            continue
+        to_h = lambda key: round((stages.get(key) or 0) / 3_600_000.0, 2)
+        sleep_stages.append({
+            "t": _iso(s.start),
+            "light": to_h("total_light_sleep_time_milli"),
+            "rem": to_h("total_rem_sleep_time_milli"),
+            "deep": to_h("total_slow_wave_sleep_time_milli"),
+            "awake": to_h("total_awake_time_milli"),
+        })
+
+    # ---- workout heart-rate zones (from the raw Whoop payloads) ------------- #
+    zone_minutes = {f"zone_{z}": 0.0 for z in
+                    ("zero", "one", "two", "three", "four", "five")}
+    for w in workouts:
+        score = (getattr(w, "raw", None) or {}).get("score") or {}
+        zones = score.get("zone_durations") or score.get("zone_duration") or {}
+        for key in zone_minutes:
+            ms = zones.get(f"{key}_milli")
+            if ms:
+                zone_minutes[key] += ms / 60_000.0
+    zone_minutes = {k: round(v, 1) for k, v in zone_minutes.items()}
+
     # ---- sleep analysis ----------------------------------------------------- #
     bedtime_offsets = []
     for s in main_sleeps:
@@ -362,6 +440,13 @@ def _analyze(cycles, recoveries, sleeps, workouts, profile, days: int, cutoff: d
         "nights_under_7h": sum(1 for p in series["sleep_hours"] if p["v"] < 7),
         "nights_total": len(series["sleep_hours"]),
         "naps": sum(1 for s in sleeps if s.nap),
+        "avg_efficiency": _avg(efficiencies),
+        "avg_consistency": _avg(consistencies),
+        "avg_disturbances": _avg(disturbances),
+        "avg_rem_hours": _avg([n["rem"] for n in sleep_stages]),
+        "avg_deep_hours": _avg([n["deep"] for n in sleep_stages]),
+        "avg_awake_hours": _avg([n["awake"] for n in sleep_stages]),
+        "sleep_debt_hours": latest_debt_hours,
     }
 
     # ---- training analysis --------------------------------------------------#
@@ -405,6 +490,7 @@ def _analyze(cycles, recoveries, sleeps, workouts, profile, days: int, cutoff: d
         "overreach_days_14d": overreach,
         "workouts_per_week": len(workouts) / window_weeks if workouts else 0.0,
         "weekly": weekly,
+        "zone_minutes": zone_minutes,
     }
 
     sport_counts: dict[str, int] = {}
@@ -500,8 +586,19 @@ def _analyze(cycles, recoveries, sleeps, workouts, profile, days: int, cutoff: d
         "records": records,
         "series": series,
         "series_ma7": series_ma,
+        "sleep_stages": sleep_stages,
         "scatter": scatter,
         "recent_workouts": recent_workouts,
+        "body": {
+            "height_meter": body.height_meter if body else None,
+            "weight_kilogram": body.weight_kilogram if body else None,
+            "max_heart_rate": body.max_heart_rate if body else None,
+            "bmi": (
+                round(body.weight_kilogram / (body.height_meter ** 2), 1)
+                if body and body.weight_kilogram and body.height_meter
+                else None
+            ),
+        },
     }
     result["overall"] = _overall_status(current, trends, sleep_analysis)
     result["recommendations"] = _recommendations(result)
@@ -543,7 +640,7 @@ def compute_insights(db: Session, days: int = 90) -> dict:
             .options(load_only(
                 Sleep.id, Sleep.start, Sleep.end, Sleep.nap,
                 Sleep.timezone_offset, Sleep.sleep_performance_percentage,
-                Sleep.respiratory_rate,
+                Sleep.respiratory_rate, Sleep.raw,
             ))
             .where(Sleep.start >= cutoff)
             .order_by(Sleep.start)
@@ -555,11 +652,12 @@ def compute_insights(db: Session, days: int = 90) -> dict:
             .options(load_only(
                 Workout.id, Workout.start, Workout.end, Workout.sport_id,
                 Workout.sport_name, Workout.strain, Workout.kilojoule,
-                Workout.average_heart_rate, Workout.max_heart_rate,
+                Workout.average_heart_rate, Workout.max_heart_rate, Workout.raw,
             ))
             .where(Workout.start >= cutoff)
             .order_by(Workout.start)
         ).all()
     )
     profile = db.scalars(select(Profile)).first()
-    return _analyze(cycles, recoveries, sleeps, workouts, profile, days, cutoff)
+    body = db.get(BodyMeasurement, 1)
+    return _analyze(cycles, recoveries, sleeps, workouts, profile, days, cutoff, body)

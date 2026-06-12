@@ -61,6 +61,21 @@ class Profile(Base):
     )
 
 
+class BodyMeasurement(Base):
+    """Single-row table: the user's latest body measurements from Whoop."""
+
+    __tablename__ = "body_measurements"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    height_meter: Mapped[float | None] = mapped_column(Float)
+    weight_kilogram: Mapped[float | None] = mapped_column(Float)
+    max_heart_rate: Mapped[int | None] = mapped_column(Integer)
+    raw: Mapped[dict] = mapped_column(JSONB)
+    synced_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class Cycle(Base):
     __tablename__ = "cycles"
 

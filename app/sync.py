@@ -11,7 +11,9 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from app import whoop_client
-from app.models import Cycle, Profile, Recovery, Sleep, SyncRun, Workout
+from app.models import (
+    BodyMeasurement, Cycle, Profile, Recovery, Sleep, SyncRun, Workout,
+)
 
 
 def _dt(value: str | None) -> datetime | None:
@@ -125,6 +127,18 @@ def sync_profile(db: Session) -> int:
     return _upsert(db, Profile, [row], ["user_id"])
 
 
+def sync_body(db: Session) -> int:
+    r = whoop_client.get_single(db, "/user/measurement/body")
+    row = {
+        "id": 1,
+        "height_meter": r.get("height_meter"),
+        "weight_kilogram": r.get("weight_kilogram"),
+        "max_heart_rate": r.get("max_heart_rate"),
+        "raw": r,
+    }
+    return _upsert(db, BodyMeasurement, [row], ["id"])
+
+
 def sync_cycles(db: Session, params: dict | None = None) -> int:
     records = whoop_client.get_collection(db, "/cycle", params)
     rows = [_map_cycle(r) for r in records]
@@ -153,6 +167,7 @@ def sync_all(db: Session, params: dict | None = None) -> dict[str, int]:
     """Sync every collection.  ``params`` may contain start/end date filters."""
     return {
         "profile": sync_profile(db),
+        "body": sync_body(db),
         "cycles": sync_cycles(db, params),
         "recovery": sync_recovery(db, params),
         "sleep": sync_sleep(db, params),

@@ -227,6 +227,17 @@ _PAGE = """<!DOCTYPE html>
       <div class="grid" id="trend-charts"></div>
     </section>
 
+    <section id="sleep-section" style="display:none;">
+      <h3>Sleep quality</h3>
+      <div class="stats" id="sleep-stats" style="margin-bottom:14px;"></div>
+      <div class="grid">
+        <div class="card wide">
+          <h2>Sleep stages per night (hours)</h2>
+          <div class="chart-wrap" style="height:260px;"><canvas id="c-stages"></canvas></div>
+        </div>
+      </div>
+    </section>
+
     <section id="training-section" style="display:none;">
       <h3>Training analysis</h3>
       <div class="grid" id="training-charts"></div>
@@ -404,15 +415,66 @@ _PAGE = """<!DOCTYPE html>
       ensureChart('sleep-p', 'c-sleep-p', trendConfig('Sleep %', COLORS.purple, s.series.sleep_performance, s.series_ma7.sleep_performance));
     }
 
+    /* ---------- sleep quality ---------- */
+    function renderSleepQuality(s) {
+      const sa = s.sleep_analysis || {};
+      const stages = s.sleep_stages || [];
+      if (!stages.length && sa.avg_efficiency == null) return;
+      document.getElementById('sleep-section').style.display = '';
+      document.getElementById('sleep-stats').innerHTML = [
+        statCard('Efficiency', fmt(sa.avg_efficiency, 0), '%', 'purple'),
+        statCard('Consistency', fmt(sa.avg_consistency, 0), '%', 'purple'),
+        statCard('Avg REM', fmt(sa.avg_rem_hours, 1), 'h', 'blue'),
+        statCard('Avg deep', fmt(sa.avg_deep_hours, 1), 'h', 'green'),
+        statCard('Awake / night', fmt(sa.avg_awake_hours, 1), 'h', ''),
+        statCard('Disturbances', fmt(sa.avg_disturbances, 1), '/night', ''),
+        statCard('Sleep debt', fmt(sa.sleep_debt_hours, 1), 'h',
+          (sa.sleep_debt_hours || 0) >= 0.75 ? 'red' : 'green'),
+        statCard('Naps', fmtInt(sa.naps), '', ''),
+      ].join('');
+      if (!stages.length) return;
+      const ds = (key, label, color) => ({
+        label, data: stages.map((n) => n[key]), backgroundColor: color,
+        borderRadius: 2, stack: 's',
+      });
+      ensureChart('stages', 'c-stages', {
+        type: 'bar',
+        data: { labels: stages.map((n) => fmtDate(n.t)),
+          datasets: [
+            ds('deep', 'Deep (SWS)', '#2f7bd9'),
+            ds('rem', 'REM', COLORS.purple),
+            ds('light', 'Light', '#5aa7ff66'),
+            ds('awake', 'Awake', COLORS.red + '99'),
+          ] },
+        options: { responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { position: 'bottom', labels: { boxWidth: 12 } } },
+          scales: { x: { stacked: true, grid: { display: false }, ticks: { maxTicksLimit: 14 } },
+                    y: { stacked: true, grid: { color: COLORS.grid } } } },
+      });
+    }
+
     /* ---------- training ---------- */
     function renderTraining(s) {
       document.getElementById('training-section').style.display = '';
       document.getElementById('training-charts').innerHTML = [
         chartCard('c-weekly', 'Weekly training volume (minutes)'),
         chartCard('c-scatter', 'Strain vs recovery (each dot = a day)'),
+        chartCard('c-zones', 'Time in heart-rate zones (minutes)'),
         chartCard('c-dist', 'Recovery distribution'),
         chartCard('c-sports', 'Training time by sport (minutes)'),
       ].join('');
+
+      const zm = s.training_analysis.zone_minutes || {};
+      const zoneVals = ['zone_zero','zone_one','zone_two','zone_three','zone_four','zone_five'].map((k) => zm[k] || 0);
+      ensureChart('zones', 'c-zones', {
+        type: 'bar',
+        data: { labels: ['Z0 rest','Z1 easy','Z2 moderate','Z3 brisk','Z4 hard','Z5 max'],
+          datasets: [{ data: zoneVals, borderRadius: 4,
+            backgroundColor: ['#8a93a6','#5aa7ff','#16c47f','#f4c542','#ff8c5a','#ef4f4f'] }] },
+        options: { responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: { x: { grid: { display: false } }, y: { grid: { color: COLORS.grid } } } },
+      });
 
       const weekly = s.training_analysis.weekly || [];
       ensureChart('weekly', 'c-weekly', {
@@ -481,6 +543,11 @@ _PAGE = """<!DOCTYPE html>
       if (r.max_strain) cards.push(recordCard('Biggest day strain', fmt(r.max_strain.v, 1), fmtDate(r.max_strain.t)));
       if (r.longest_sleep) cards.push(recordCard('Longest sleep', fmt(r.longest_sleep.v, 1) + ' h', fmtDate(r.longest_sleep.t)));
       cards.push(recordCard('Total training', fmt((s.totals.workout_minutes || 0) / 60, 1) + ' h', `${s.counts.workouts} workouts`));
+      const body = s.body || {};
+      if (body.weight_kilogram) cards.push(recordCard('Weight', fmt(body.weight_kilogram, 1) + ' kg',
+        body.bmi ? `BMI ${fmt(body.bmi, 1)}` : ''));
+      if (body.height_meter) cards.push(recordCard('Height', fmt(body.height_meter * 100, 0) + ' cm',
+        body.max_heart_rate ? `Max HR ${body.max_heart_rate}` : ''));
       if (!cards.length) return;
       document.getElementById('records-section').style.display = '';
       document.getElementById('records').innerHTML = cards.join('');
@@ -518,7 +585,7 @@ _PAGE = """<!DOCTYPE html>
             <p>Try a wider range, or hit "Sync now" to pull your data.</p></div>`;
           return;
         }
-        renderHero(s); renderRecs(s); renderTrends(s);
+        renderHero(s); renderRecs(s); renderTrends(s); renderSleepQuality(s);
         renderTraining(s); renderRecords(s); renderWorkouts(s);
       } catch (err) {
         meta.innerHTML = `<span style="color: var(--red)">Failed to load: ${err.message}</span>`;
