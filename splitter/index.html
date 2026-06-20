@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+  <meta name="theme-color" content="#0f172a" />
+  <title>TripSplit — Share travel expenses</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo">TS</div>
+      <div>
+        <h1>TripSplit</h1>
+        <p class="tagline">Share dinners. Split fairly. Travel happy.</p>
+      </div>
+    </div>
+    <nav class="tabs">
+      <button class="tab active" data-tab="events">Events</button>
+      <button class="tab" data-tab="people">Travelers</button>
+      <button class="tab" data-tab="balances">Balances</button>
+    </nav>
+  </header>
+
+  <main class="container">
+    <!-- TRIP SELECTOR -->
+    <section class="trip-bar">
+      <label for="trip-select">Trip</label>
+      <select id="trip-select"></select>
+      <button id="new-trip-btn" class="btn-secondary">+ New Trip</button>
+      <button id="rename-trip-btn" class="btn-ghost" title="Rename trip">Rename</button>
+      <button id="delete-trip-btn" class="btn-ghost danger" title="Delete trip">Delete</button>
+    </section>
+
+    <!-- EVENTS TAB -->
+    <section id="tab-events" class="tab-panel active">
+      <div class="panel-head">
+        <h2>Events</h2>
+        <button id="add-event-btn" class="btn-primary">+ Add Event</button>
+      </div>
+      <div id="events-list" class="cards"></div>
+      <div id="events-empty" class="empty" hidden>
+        <div class="empty-emoji">🍝</div>
+        <h3>No events yet</h3>
+        <p>Tap <strong>+ Add Event</strong> after your next dinner. Snap the invoice, pick who came, and TripSplit divides it.</p>
+      </div>
+    </section>
+
+    <!-- PEOPLE TAB -->
+    <section id="tab-people" class="tab-panel">
+      <div class="panel-head">
+        <h2>Travelers</h2>
+        <button id="add-person-btn" class="btn-primary">+ Add Traveler</button>
+      </div>
+      <p class="hint">Add everyone who might join in any city. Per event you pick who actually attended.</p>
+      <ul id="people-list" class="people"></ul>
+      <div id="people-empty" class="empty" hidden>
+        <div class="empty-emoji">🧳</div>
+        <h3>No travelers yet</h3>
+        <p>Add the people in your group. Don't worry — you can pick a different subset for every dinner.</p>
+      </div>
+    </section>
+
+    <!-- BALANCES TAB -->
+    <section id="tab-balances" class="tab-panel">
+      <div class="panel-head">
+        <h2>Balances</h2>
+        <span id="trip-total" class="pill"></span>
+      </div>
+      <p class="hint">Net position per traveler across this trip. Negative means they owe; positive means they're owed.</p>
+      <ul id="balances-list" class="balances"></ul>
+
+      <h3 class="section-title">Suggested settlements</h3>
+      <p class="hint">Minimum number of payments to settle everyone up.</p>
+      <ul id="settlements-list" class="settlements"></ul>
+      <div id="balances-empty" class="empty" hidden>
+        <div class="empty-emoji">⚖️</div>
+        <h3>Nothing to balance yet</h3>
+        <p>Add at least one event with a payer and attendees to see who owes whom.</p>
+      </div>
+    </section>
+  </main>
+
+  <!-- EVENT MODAL -->
+  <div id="event-modal" class="modal" hidden>
+    <div class="modal-card">
+      <header class="modal-head">
+        <h2 id="event-modal-title">Add event</h2>
+        <button class="icon-btn" data-close>&times;</button>
+      </header>
+
+      <form id="event-form" class="modal-body">
+        <div class="row">
+          <label>
+            Title
+            <input type="text" name="title" placeholder="Dinner at Trattoria" required />
+          </label>
+          <label>
+            City
+            <input type="text" name="city" placeholder="Rome" required />
+          </label>
+        </div>
+
+        <div class="row">
+          <label>
+            Date
+            <input type="date" name="date" required />
+          </label>
+          <label>
+            Total cost
+            <div class="amount-wrap">
+              <input type="number" name="amount" step="0.01" min="0" placeholder="0.00" required />
+              <select name="currency">
+                <option value="EUR">EUR €</option>
+                <option value="USD">USD $</option>
+                <option value="GBP">GBP £</option>
+                <option value="JPY">JPY ¥</option>
+                <option value="CHF">CHF</option>
+                <option value="AED">AED د.إ</option>
+                <option value="SAR">SAR ﷼</option>
+                <option value="TRY">TRY ₺</option>
+                <option value="THB">THB ฿</option>
+              </select>
+            </div>
+          </label>
+        </div>
+
+        <label>
+          Who paid?
+          <select name="payer" required>
+            <option value="">— Select payer —</option>
+          </select>
+        </label>
+
+        <fieldset>
+          <legend>Who attended? <span class="hint inline">Cost is split only between these people</span></legend>
+          <div id="attendees-checks" class="checks"></div>
+          <div class="quick-actions">
+            <button type="button" id="select-all-btn" class="btn-ghost">Select all</button>
+            <button type="button" id="select-none-btn" class="btn-ghost">Clear</button>
+          </div>
+        </fieldset>
+
+        <label>
+          Invoice photo
+          <div class="upload">
+            <input type="file" name="photo" id="photo-input" accept="image/*" capture="environment" />
+            <label for="photo-input" class="upload-label">
+              <span id="photo-placeholder">📷 Tap to snap or choose a photo</span>
+              <img id="photo-preview" alt="Invoice preview" hidden />
+            </label>
+            <button type="button" id="remove-photo-btn" class="btn-ghost" hidden>Remove photo</button>
+          </div>
+        </label>
+
+        <label>
+          Notes <span class="hint inline">(optional)</span>
+          <textarea name="notes" rows="2" placeholder="Tip included, split appetizers..."></textarea>
+        </label>
+
+        <footer class="modal-actions">
+          <button type="button" class="btn-ghost" data-close>Cancel</button>
+          <button type="submit" class="btn-primary">Save event</button>
+        </footer>
+      </form>
+    </div>
+  </div>
+
+  <!-- PERSON MODAL -->
+  <div id="person-modal" class="modal" hidden>
+    <div class="modal-card small">
+      <header class="modal-head">
+        <h2>Add traveler</h2>
+        <button class="icon-btn" data-close>&times;</button>
+      </header>
+      <form id="person-form" class="modal-body">
+        <label>
+          Name
+          <input type="text" name="name" placeholder="Alex" required autofocus />
+        </label>
+        <footer class="modal-actions">
+          <button type="button" class="btn-ghost" data-close>Cancel</button>
+          <button type="submit" class="btn-primary">Add</button>
+        </footer>
+      </form>
+    </div>
+  </div>
+
+  <!-- PHOTO LIGHTBOX -->
+  <div id="lightbox" class="lightbox" hidden>
+    <button class="lightbox-close" id="lightbox-close">&times;</button>
+    <img id="lightbox-img" alt="Invoice" />
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
