@@ -7,11 +7,13 @@ import hashlib
 import hmac
 import json
 import logging
+import os
 import socket
 from datetime import datetime, timedelta, timezone
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi import Response
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
@@ -37,6 +39,15 @@ app = FastAPI(
 app.add_middleware(SessionMiddleware, secret_key=settings.session_secret)
 app.include_router(auth_router)
 app.include_router(dashboard_router)
+
+# TripSplit static app — bundled travel expense splitter. Served at /splitter.
+_splitter_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "splitter")
+if os.path.isdir(_splitter_dir):
+    app.mount(
+        "/splitter",
+        StaticFiles(directory=_splitter_dir, html=True),
+        name="splitter",
+    )
 
 
 @app.on_event("startup")
